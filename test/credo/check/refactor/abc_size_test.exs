@@ -1,5 +1,5 @@
 defmodule Credo.Check.Refactor.ABCSizeTest do
-  use Credo.TestHelper
+  use Credo.Test.Case
 
   @described_check Credo.Check.Refactor.ABCSize
 
@@ -125,7 +125,8 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     end
     """
     |> to_source_file
-    |> refute_issues(@described_check, max_size: 0)
+    |> run_check(@described_check, max_size: 0)
+    |> refute_issues()
   end
 
   test "it should NOT report expected code /2" do
@@ -135,7 +136,8 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     end
     """
     |> to_source_file
-    |> assert_issue(@described_check, max_size: 0)
+    |> run_check(@described_check, max_size: 0)
+    |> assert_issue()
   end
 
   test "it should NOT report expected code /x" do
@@ -147,7 +149,8 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     end
     """
     |> to_source_file
-    |> refute_issues(@described_check, max_size: 3)
+    |> run_check(@described_check, max_size: 3)
+    |> refute_issues()
   end
 
   test "it should NOT report a violation for __using__ macro" do
@@ -213,7 +216,8 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     end
     """
     |> to_source_file
-    |> refute_issues(@described_check)
+    |> run_check(@described_check)
+    |> refute_issues()
   end
 
   test "it should report a violation" do
@@ -230,7 +234,8 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     end
     """
     |> to_source_file
-    |> assert_issue(@described_check, max_size: 3)
+    |> run_check(@described_check, max_size: 3)
+    |> assert_issue()
   end
 
   test "it should NOT count map/struct field access with dot notation for abc size" do
@@ -263,5 +268,50 @@ defmodule Credo.Check.Refactor.ABCSizeTest do
     """
 
     assert rounded_abc_size(source, ["where", "join", "select", "distinct"]) == 1
+  end
+
+  test "it should NOT count ecto functions when Ecto.Query is imported" do
+    """
+    defmodule CredoEctoQueryModule do
+      import Ecto.Query
+
+      def fun() do
+        Favorite
+        |> where(user_id: ^user.id)
+        |> join(:left, [f], t in Template, f.entity_id == t.id and f.entity_type == "template")
+        |> join(:left, [f, t], d in Document, f.entity_id == d.id and f.entity_type == "document")
+        |> join(:left, [f, t, d], dt in Template, dt.id == d.template_id)
+        |> join(:left, [f, t, d, dt], c in Category, c.id == t.category_id or c.id == dt.category_id)
+        |> select([f, t, d, dt, c], c)
+        |> distinct(true)
+        |> Repo.all()
+      end
+    end
+    """
+    |> to_source_file
+    |> run_check(@described_check, max_size: 3)
+    |> refute_issues()
+  end
+
+  test "it SHOULD count ecto functions when Ecto.Query is NOT imported" do
+    """
+    defmodule CredoEctoQueryModule do
+
+      def fun() do
+        Favorite
+        |> where(user_id: ^user.id)
+        |> join(:left, [f], t in Template, f.entity_id == t.id and f.entity_type == "template")
+        |> join(:left, [f, t], d in Document, f.entity_id == d.id and f.entity_type == "document")
+        |> join(:left, [f, t, d], dt in Template, dt.id == d.template_id)
+        |> join(:left, [f, t, d, dt], c in Category, c.id == t.category_id or c.id == dt.category_id)
+        |> select([f, t, d, dt, c], c)
+        |> distinct(true)
+        |> Repo.all()
+      end
+    end
+    """
+    |> to_source_file
+    |> run_check(@described_check, max_size: 3)
+    |> assert_issue()
   end
 end

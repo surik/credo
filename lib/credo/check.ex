@@ -18,7 +18,47 @@ defmodule Credo.Check do
   - `:base_priority`  Sets the checks's base priority (`:low`, `:normal`, `:high`, `:higher` or `:ignore`).
   - `:category`       Sets the check's category.
   - `:elixir_version` Sets the check's version requirement for Elixir (defaults to `>= 0.0.1`).
+  - `:explanations`   Sets explanations displayed for the check, e.g.
+
+      ```elixir
+      [
+        check: "...",
+        params: [
+          param1: "Your favorite number",
+          param2: "Online/Offline mode"
+        ]
+      ]
+      ```
+
+  - `:param_defaults` Sets the default values for the check's params (e.g. `[param1: 42, param2: "offline"]`)
   - `:run_on_all`     Sets whether the check runs on all source files at once or each source file separatly.
+
+  Please also note that these options to `use Credo.Check` are just a convenience to implement the `Credo.Check`
+  behaviour. You can implement any of these by hand:
+
+      defmodule MyCheck do
+        use Credo.Check
+
+        def category, do: :warning
+
+        def base_priority, do: :high
+
+        def explanations do
+          [
+            check: "...",
+            params: [
+              param1: "Your favorite number",
+              param2: "Online/Offline mode"
+            ]
+          ]
+        end
+
+        def param_defaults, do: [param1: 42, param2: "offline"]
+
+        def run(source_file, params) do
+          #
+        end
+      end
 
   The `run/2` function of a Check module takes two parameters: a source file and a list of parameters for the check.
   It has to return a list of found issues.
@@ -34,14 +74,29 @@ defmodule Credo.Check do
   """
   @callback category() :: atom
 
+  @doc """
+  Returns the required Elixir version for the check.
+  """
+  @callback elixir_version() :: String.t()
+
+  @doc """
+  Returns the explanations for the check and params as a keyword list.
+  """
+  @callback explanations() :: Keyword.t()
+
+  @doc """
+  Returns the default values for the check's params as a keyword list.
+  """
+  @callback param_defaults() :: Keyword.t()
+
   # @callback run(source_file :: Credo.SourceFile.t, params :: Keyword.t) :: list()
 
+  @doc """
+  Returns wether or not this check runs on all source files.
+  """
   @callback run_on_all?() :: boolean
 
-  @callback explanation() :: String.t()
-
-  @callback explanation_for_params() :: Keyword.t()
-
+  @doc false
   @callback format_issue(issue_meta :: Credo.IssueMeta.t(), opts :: Keyword.t()) ::
               Credo.Issue.t()
 
@@ -62,7 +117,14 @@ defmodule Credo.Check do
   alias Credo.Severity
   alias Credo.SourceFile
 
-  @valid_use_opts [:base_priority, :category, :elixir_version, :run_on_all]
+  @valid_use_opts [
+    :base_priority,
+    :category,
+    :param_defaults,
+    :elixir_version,
+    :explanations,
+    :run_on_all
+  ]
 
   @doc false
   defmacro __using__(opts) do
@@ -74,7 +136,80 @@ defmodule Credo.Check do
         nil
     end)
 
+    def_base_priority =
+      if opts[:base_priority] do
+        quote do
+          @impl true
+          def base_priority, do: unquote(opts[:base_priority])
+        end
+      else
+        quote do
+          @impl true
+          def base_priority, do: 0
+        end
+      end
+
+    def_category =
+      if opts[:category] do
+        quote do
+          @impl true
+          def category, do: unquote(category_body(opts[:category]))
+        end
+      else
+        quote do
+          @impl true
+          def category, do: unquote(category_body(nil))
+        end
+      end
+
+    def_elixir_version =
+      if opts[:elixir_version] do
+        quote do
+          @impl true
+          def elixir_version do
+            unquote(opts[:elixir_version])
+          end
+        end
+      else
+        quote do
+          @impl true
+          def elixir_version, do: ">= 0.0.1"
+        end
+      end
+
+    def_run_on_all? =
+      if opts[:run_on_all] do
+        quote do
+          @impl true
+          def run_on_all?, do: unquote(opts[:run_on_all] == true)
+        end
+      else
+        quote do
+          @impl true
+          def run_on_all?, do: false
+        end
+      end
+
+    def_param_defaults =
+      if opts[:param_defaults] do
+        quote do
+          @impl true
+          def param_defaults, do: unquote(opts[:param_defaults])
+        end
+      end
+
+    def_explanations =
+      if opts[:explanations] do
+        quote do
+          @impl true
+          def explanations do
+            unquote(opts[:explanations])
+          end
+        end
+      end
+
     quote do
+      @moduledoc false
       @behaviour Credo.Check
       @before_compile Credo.Check
 
@@ -87,30 +222,14 @@ defmodule Credo.Check do
       alias Credo.Severity
       alias Credo.SourceFile
 
-      def base_priority do
-        unquote(Priority.to_integer(opts[:base_priority]))
-      end
+      unquote(def_base_priority)
+      unquote(def_category)
+      unquote(def_elixir_version)
+      unquote(def_run_on_all?)
+      unquote(def_param_defaults)
+      unquote(def_explanations)
 
-      def category do
-        unquote(category_body(opts[:category]) || :unknown)
-      end
-
-      def elixir_version do
-        unquote(opts[:elixir_version] || ">= 0.0.1")
-      end
-
-      def run_on_all? do
-        unquote(run_on_all_body(opts[:run_on_all]))
-      end
-
-      def explanation do
-        Check.explanation_for(@explanation, :check)
-      end
-
-      def explanation_for_params do
-        Check.explanation_for(@explanation, :params) || []
-      end
-
+      @impl true
       def format_issue(issue_meta, issue_options) do
         Check.format_issue(
           issue_meta,
@@ -120,28 +239,84 @@ defmodule Credo.Check do
           __MODULE__
         )
       end
+
+      defoverridable Credo.Check
     end
   end
 
   @doc false
   defmacro __before_compile__(env) do
     quote do
-      unquote(default_params_module_attribute(env))
+      unquote(deprecated_def_default_params(env))
+      unquote(deprecated_def_explanations(env))
 
-      def params_defaults do
-        @default_params
+      def param_names do
+        Keyword.keys(param_defaults())
       end
 
+      @deprecated "Use param_defaults/1 instead"
+      def params_defaults do
+        # deprecated - remove module attribute
+        param_defaults()
+      end
+
+      @deprecated "Use param_names/1 instead"
       def params_names do
-        Keyword.keys(params_defaults())
+        param_names()
+      end
+
+      @deprecated "Use explanations()[:check] instead"
+      def explanation do
+        # deprecated - remove module attribute
+        explanations()[:check]
+      end
+
+      @deprecated "Use explanations()[:params] instead"
+      def explanation_for_params do
+        # deprecated - remove module attribute
+        explanations()[:params]
       end
     end
   end
 
-  defp default_params_module_attribute(env) do
-    if env.module |> Module.get_attribute(:default_params) |> is_nil() do
+  defp deprecated_def_default_params(env) do
+    default_params = Module.get_attribute(env.module, :default_params)
+
+    if not is_nil(default_params) do
+      # deprecated - remove once we ditch @default_params
       quote do
-        @default_params []
+        @impl true
+        def param_defaults do
+          @default_params
+        end
+      end
+    else
+      if not Module.defines?(env.module, {:param_defaults, 0}) do
+        quote do
+          @impl true
+          def param_defaults, do: []
+        end
+      end
+    end
+  end
+
+  defp deprecated_def_explanations(env) do
+    explanation = Module.get_attribute(env.module, :explanation)
+
+    if not is_nil(explanation) do
+      # deprecated - remove once we ditch @explanation
+      quote do
+        @impl true
+        def explanations do
+          @explanation
+        end
+      end
+    else
+      if not Module.defines?(env.module, {:explanations, 0}) do
+        quote do
+          @impl true
+          def explanations, do: []
+        end
       end
     end
   end
@@ -166,17 +341,8 @@ defmodule Credo.Check do
     source_file = IssueMeta.source_file(issue_meta)
     params = IssueMeta.params(issue_meta)
 
-    priority =
-      case params[:priority] do
-        nil -> issue_base_priority
-        val -> Priority.to_integer(val)
-      end
-
-    exit_status =
-      case params[:exit_status] do
-        nil -> Check.to_exit_status(issue_category)
-        val -> Check.to_exit_status(val)
-      end
+    priority = Priority.to_integer(params[:priority] || issue_base_priority)
+    exit_status = Check.to_exit_status(params[:exit_status] || issue_category)
 
     line_no = opts[:line_no]
     trigger = opts[:trigger]
@@ -314,7 +480,4 @@ defmodule Credo.Check do
   end
 
   def to_exit_status(value), do: value
-
-  defp run_on_all_body(true), do: true
-  defp run_on_all_body(_), do: false
 end

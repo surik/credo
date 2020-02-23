@@ -1,7 +1,7 @@
 defmodule Credo.Mixfile do
   use Mix.Project
 
-  @version "1.2.0-rc4"
+  @version "1.3.0-rc1"
 
   def project do
     [
@@ -80,7 +80,7 @@ defmodule Credo.Mixfile do
       files: [
         ".credo.exs",
         ".template.check.ex",
-        "debug-template.html",
+        ".template.debug.html",
         "lib",
         "LICENSE",
         "mix.exs",
